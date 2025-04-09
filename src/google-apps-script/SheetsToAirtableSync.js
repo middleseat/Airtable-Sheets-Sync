@@ -1,20 +1,34 @@
 /**
- * Google Sheets to Airtable Sync
- * This script syncs data between Google Sheets and Airtable when:
- * 1. The user edits the sheet (limited to once per hour)
- * 2. The user manually triggers it from the menu (no limit)
+ * Google Sheets to Airtable ActBlueSync
+ * Version: 1.0.0
+ * Author(s): Ryan Mioduski
+ *
+ * Important:
+ * This script syncs data between Google Sheets and Airtable, specifically for tracking
+ * ActBlue donation data. It automatically updates Airtable records with the total amount
+ * raised and number of donations for each ActBlue form.
+ *
+ * Before using the script, you need to:
+ * 1. Set up your Airtable API key in the script properties
+ * 2. Configure the correct Airtable base ID and table ID
+ * 3. Ensure your Google Sheet has the correct sheet name and column structure
  */
 
-// Configuration constants
-const AIRTABLE_API_KEY = "patmOcjxRihjKvEsJ.56abda1b858edd6056d5d000ad0fd68ebcd3a36a085d5fda7e1652b6b47456c2"; // Airtable API key
+// Configuration
 const AIRTABLE_BASE_ID = "appGDzLGgrYmcW9R1"; // The base ID for your Airtable
 const AIRTABLE_TABLE_ID = "tblTo3zgLYNby9UnL"; // The 2024 P2P Texting table ID
 const SHEET_NAME = "raw_import"; // The sheet name containing the donor data
-const ACTBLUE_URL_PREFIX = "https://secure.actblue.com/donate/"; // Prefix to remove from ActBlue URLs
+const RATE_LIMIT_HOURS = 0.25; // Only auto-sync once per 15 minutes
 
-// Rate limiting constants
-const RATE_LIMIT_HOURS = 1; // Only auto-sync once per hour
+// Airtable field names
+const AIRTABLE_ACTBLUE_PAGE_FIELD = "ActBlue Page"; // Field name for ActBlue page URL
+const AIRTABLE_RAISED_FIELD = "Raised"; // Field name for amount raised
+const AIRTABLE_DONATIONS_FIELD = "Donations"; // Field name for number of donations
+// End Configuration
+
+// Internal constants
 const RATE_LIMIT_PROP_KEY = "lastAutoSyncTime"; // For storing the last sync time
+const AIRTABLE_API_KEY_PROP = "AIRTABLE_API_KEY"; // Property key for storing the API key
 
 /**
  * Creates a custom menu when the spreadsheet is opened.
@@ -23,15 +37,56 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Airtable Sync')
     .addItem('Sync Data Now', 'manualSyncData')
-    .addItem('View Sync Logs', 'viewLogs')
+    .addItem('Install Auto-Sync', 'installAutoSync')
+    .addSeparator()
+    .addItem('View Logs', 'viewLogs')
     .addToUi();
 }
 
 /**
- * Triggered when the sheet is edited.
- * Limits syncing to once per hour for automatic updates.
+ * Manual sync function that bypasses rate limiting.
+ * Called from the custom menu.
  */
-function onEdit(e) {
+function manualSyncData() {
+  logMessage("Manual sync triggered by user");
+  syncData();
+}
+
+/**
+ * Creates an installable trigger for auto-sync.
+ * This is a ONE-TIME SETUP that must be run to enable auto-sync.
+ */
+function installAutoSync() {
+  // Delete any existing triggers
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'autoSyncOnEdit') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  
+  // Create new installable trigger
+  ScriptApp.newTrigger('autoSyncOnEdit')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onEdit()
+    .create();
+  
+  // Show confirmation
+  const ui = SpreadsheetApp.getUi();
+  ui.alert("Auto-Sync Installed", 
+           "Auto-sync has been successfully installed! The spreadsheet will now automatically " +
+           "sync with Airtable when edited (limited to once every 15 minutes).\n\n" +
+           "P.S. You can safely run 'Install Auto-Sync' again if needed - it will update the existing trigger without creating duplicates.", 
+           ui.ButtonSet.OK);
+  
+  logMessage("Auto-sync trigger installed successfully");
+}
+
+/**
+ * This function is called by the installable trigger when the sheet is edited.
+ * It has full permissions to access external APIs.
+ */
+function autoSyncOnEdit(e) {
   // Only trigger if the edit happens in the raw_import sheet
   const sheet = e.source.getActiveSheet();
   if (sheet.getName() !== SHEET_NAME) {
@@ -49,15 +104,6 @@ function onEdit(e) {
   
   // Run the sync
   logMessage("Edit detected, running auto-sync");
-  syncData();
-}
-
-/**
- * Manual sync function that bypasses rate limiting.
- * Called from the custom menu.
- */
-function manualSyncData() {
-  logMessage("Manual sync triggered by user");
   syncData();
 }
 
@@ -133,12 +179,20 @@ function fetchAirtableRecords() {
   logMessage("Fetching records from Airtable...");
   
   try {
+    const props = PropertiesService.getScriptProperties();
+    const apiKey = props.getProperty(AIRTABLE_API_KEY_PROP);
+    
+    if (!apiKey) {
+      logError("Airtable API key not found in script properties");
+      return [];
+    }
+    
     // Prepare request options
     const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_ID}`;
     const options = {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       }
     };
@@ -155,13 +209,12 @@ function fetchAirtableRecords() {
     // Extract and process the records
     const records = data.records.map(record => {
       const id = record.id;
-      const actBlueUrl = record.fields["ActBlue Page"] || 
-                         record.fields[`fldxiPzVeVCUXsnq1`] || '';
+      const actBlueUrl = record.fields[AIRTABLE_ACTBLUE_PAGE_FIELD] || '';
       
       // Extract form slug by removing the ActBlue URL prefix
       let formSlug = '';
-      if (actBlueUrl && actBlueUrl.indexOf(ACTBLUE_URL_PREFIX) !== -1) {
-        formSlug = actBlueUrl.replace(ACTBLUE_URL_PREFIX, '');
+      if (actBlueUrl && actBlueUrl.indexOf("https://secure.actblue.com/donate/") !== -1) {
+        formSlug = actBlueUrl.replace("https://secure.actblue.com/donate/", '');
       }
       
       return {
@@ -329,6 +382,14 @@ function updateAirtable(processedData) {
   let errorCount = 0;
   
   try {
+    const props = PropertiesService.getScriptProperties();
+    const apiKey = props.getProperty(AIRTABLE_API_KEY_PROP);
+    
+    if (!apiKey) {
+      logError("Airtable API key not found in script properties");
+      return;
+    }
+    
     // Process each record
     processedData.forEach((record, index) => {
       try {
@@ -341,18 +402,15 @@ function updateAirtable(processedData) {
         const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_ID}/${record.id}`;
         const payload = {
           fields: {
-            // Use both field names and IDs for robustness
-            "Raised": record.raised,
-            "fldoNVriyq6Z0YEE7": record.raised,
-            "Donations": record.donations,
-            "fldgEEtQMx96RUqds": record.donations
+            [AIRTABLE_RAISED_FIELD]: record.raised,
+            [AIRTABLE_DONATIONS_FIELD]: record.donations
           }
         };
         
         const options = {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
+            'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
           },
           payload: JSON.stringify(payload)
@@ -386,19 +444,8 @@ function updateAirtable(processedData) {
  * Sets up an edit trigger for the sheet.
  */
 function setupTrigger() {
-  // Delete existing triggers
-  const triggers = ScriptApp.getProjectTriggers();
-  for (let i = 0; i < triggers.length; i++) {
-    ScriptApp.deleteTrigger(triggers[i]);
-  }
-  
-  // Create a new edit trigger
-  ScriptApp.newTrigger('onEdit')
-    .forSpreadsheet(SpreadsheetApp.getActive())
-    .onEdit()
-    .create();
-    
-  logMessage("Edit trigger has been set up");
+  // This function is now unused but kept for backward compatibility
+  logMessage("Manual authorization is now handled automatically. Just run 'Sync Data Now' from the menu.");
 }
 
 /**
@@ -451,50 +498,26 @@ function logError(errorMessage) {
 }
 
 /**
- * Displays logs in a modal dialog.
+ * Displays logs by activating the Logs sheet tab.
  */
 function viewLogs() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const logsSheet = ss.getSheetByName("Logs");
+  let logsSheet = ss.getSheetByName("Logs");
   
   if (!logsSheet) {
-    SpreadsheetApp.getUi().alert("No logs found. Run a sync first to generate logs.");
-    return;
-  }
-  
-  // Get log data
-  const dataRange = logsSheet.getDataRange();
-  const values = dataRange.getValues();
-  
-  if (values.length <= 1) {
-    SpreadsheetApp.getUi().alert("No log entries found.");
-    return;
-  }
-  
-  // Format the logs for display (show the most recent 50 entries)
-  const maxEntries = Math.min(50, values.length - 1);
-  const startIndex = Math.max(1, values.length - maxEntries);
-  
-  let logText = "<html><body><table style='border-collapse: collapse; width: 100%;'>";
-  logText += "<tr style='background-color: #f2f2f2;'><th style='border: 1px solid #ddd; padding: 8px; text-align: left;'>Timestamp</th><th style='border: 1px solid #ddd; padding: 8px; text-align: left;'>Type</th><th style='border: 1px solid #ddd; padding: 8px; text-align: left;'>Message</th></tr>";
-  
-  for (let i = startIndex; i < values.length; i++) {
-    const row = values[i];
-    const timestamp = Utilities.formatDate(new Date(row[0]), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-    const type = row[1];
-    const message = row[2];
+    logsSheet = ss.insertSheet("Logs");
+    logsSheet.appendRow(["Timestamp", "Type", "Message"]);
+    logsSheet.setFrozenRows(1);
     
-    const rowStyle = type === "ERROR" ? "color: red;" : "";
-    logText += `<tr style='${rowStyle}'><td style='border: 1px solid #ddd; padding: 8px;'>${timestamp}</td><td style='border: 1px solid #ddd; padding: 8px;'>${type}</td><td style='border: 1px solid #ddd; padding: 8px;'>${message}</td></tr>`;
+    // Format header row
+    logsSheet.getRange("A1:C1").setFontWeight("bold");
+    logsSheet.setColumnWidth(1, 200); // Timestamp
+    logsSheet.setColumnWidth(2, 100); // Type
+    logsSheet.setColumnWidth(3, 500); // Message
+    
+    SpreadsheetApp.getUi().alert("Created new Logs sheet.");
   }
   
-  logText += "</table></body></html>";
-  
-  // Display logs in a modal dialog
-  const htmlOutput = HtmlService
-    .createHtmlOutput(logText)
-    .setWidth(800)
-    .setHeight(500);
-  
-  SpreadsheetApp.getUi().showModalDialog(htmlOutput, "Sync Logs (Recent " + maxEntries + " entries)");
+  // Activate the Logs sheet to make it visible
+  logsSheet.activate();
 } 
