@@ -8,7 +8,7 @@ A tool to synchronize donation data between Google Sheets and Airtable.
 
 1. Open your Google Sheet
 2. Select Extensions > Apps Script
-3. Copy the contents of [SheetsToAirtableSync.js](src/google-apps-script/SheetsToAirtableSync.js) into the script editor
+3. Copy the contents of [SheetsToAirtableSync.js](SheetsToAirtableSync.js) into the script editor
 4. Save the project
 
 > **Note:** Formal deployment is not needed. The script automatically works with your sheet once set up. If you share your sheet with others, users with edit access will also be able to view and edit the script.
