@@ -1,6 +1,6 @@
 # Google Sheets to Airtable Sync
 
-A tool to synchronize donation data between Google Sheets and Airtable.
+A tool for one-way synchronization of donation data from Google Sheets to Airtable. This script pulls data from your Google Sheet and updates your Airtable records, not vice versa.
 
 ## Setup Instructions
 
