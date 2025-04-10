@@ -37,7 +37,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Airtable Sync')
     .addItem('Sync Data Now', 'manualSyncData')
-    .addItem('Install Auto-Sync', 'installAutoSync')
+    .addItem('Install Hourly Auto-Sync', 'installAutoSync')
     .addSeparator()
     .addItem('View Logs', 'viewLogs')
     .addToUi();
@@ -53,49 +53,45 @@ function manualSyncData() {
 }
 
 /**
- * Creates an installable trigger for auto-sync.
+ * Creates an hourly time-based trigger for auto-sync.
  * This is a ONE-TIME SETUP that must be run to enable auto-sync.
  */
 function installAutoSync() {
   // Delete any existing triggers
   const triggers = ScriptApp.getProjectTriggers();
   for (let i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'autoSyncOnEdit') {
+    if (triggers[i].getHandlerFunction() === 'hourlyAutoSync') {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
   
-  // Create new installable trigger
-  ScriptApp.newTrigger('autoSyncOnEdit')
-    .forSpreadsheet(SpreadsheetApp.getActive())
-    .onEdit()
+  // Create new installable hourly trigger
+  ScriptApp.newTrigger('hourlyAutoSync')
+    .timeBased()
+    .everyHours(1)
     .create();
   
   // Show confirmation
   const ui = SpreadsheetApp.getUi();
-  ui.alert("Auto-Sync Installed", 
+  ui.alert("Hourly Auto-Sync Installed", 
            "Auto-sync has been successfully installed! The spreadsheet will now automatically " +
-           "sync with Airtable when edited (limited to once every 15 minutes).\n\n" +
-           "P.S. You can safely run 'Install Auto-Sync' again if needed - it will update the existing trigger without creating duplicates.", 
+           "sync with Airtable every hour, regardless of how the data changes.\n\n" +
+           "P.S. You can safely run 'Install Hourly Auto-Sync' again if needed - it will update the existing trigger without creating duplicates.", 
            ui.ButtonSet.OK);
   
-  logMessage("Auto-sync trigger installed successfully");
+  logMessage("Hourly auto-sync trigger installed successfully");
 }
 
 /**
- * This function is called by the installable trigger when the sheet is edited.
- * It has full permissions to access external APIs.
+ * This function is called by the hourly time-based trigger.
+ * It syncs data regardless of how it was updated (manually or by another script).
  */
-function autoSyncOnEdit(e) {
-  // Only trigger if the edit happens in the raw_import sheet
-  const sheet = e.source.getActiveSheet();
-  if (sheet.getName() !== SHEET_NAME) {
-    return;
-  }
+function hourlyAutoSync() {
+  logMessage("Hourly auto-sync triggered");
   
-  // Check if we should respect the rate limit
+  // Check if we should respect the rate limit (keeping this as a safeguard)
   if (shouldRespectRateLimit()) {
-    logMessage("Edit detected, but skipping auto-sync due to rate limiting");
+    logMessage("Hourly auto-sync triggered, but skipping due to rate limiting");
     return;
   }
   
@@ -103,7 +99,6 @@ function autoSyncOnEdit(e) {
   updateLastSyncTime();
   
   // Run the sync
-  logMessage("Edit detected, running auto-sync");
   syncData();
 }
 

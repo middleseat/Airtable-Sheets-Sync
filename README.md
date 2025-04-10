@@ -44,7 +44,7 @@ const AIRTABLE_DONATIONS_FIELD = "Donations"; // Field name for number of donati
 
 1. Refresh your Google Sheet
 2. A new menu item "Airtable Sync" will appear
-3. Click "Airtable Sync" > "Install Auto-Sync"
+3. Click "Airtable Sync" > "Install Hourly Auto-Sync"
 4. When prompted, authorize the script to access your data
 5. You'll see a confirmation message when auto-sync is installed
 
@@ -53,11 +53,11 @@ const AIRTABLE_DONATIONS_FIELD = "Donations"; // Field name for number of donati
 The script adds a custom menu to your Google Sheet with the following options:
 
 - **Sync Data Now**: Manually trigger a sync (bypasses rate limiting)
-- **Install Auto-Sync**: Set up the trigger for automatic syncing (one-time setup)
+- **Install Hourly Auto-Sync**: Set up a trigger to sync data every hour (one-time setup)
 - **View Logs**: Opens the Logs sheet to view sync history
 
 ## How It Works
 
 The script connects to Airtable's API to fetch and update records. It uses the ActBlue form slugs to match records between the two systems, and calculates the total donations and donation counts for each form from the Google Sheet data.
 
-Data is automatically synced when edits are made to the Google Sheet, but these automatic syncs are limited to once every 15 minutes. Manual syncs can be triggered at any time through the custom menu. 
+Data is automatically synced hourly, regardless of how the data was updated (manually or by another script). This ensures that even when data is imported programmatically, it will be synchronized with Airtable. Manual syncs can be triggered at any time through the custom menu. 
