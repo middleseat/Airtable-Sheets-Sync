@@ -1,6 +1,6 @@
 /**
  * Google Sheets to Airtable ActBlueSync
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author(s): Ryan Mioduski
  *
  * Important:
@@ -15,8 +15,11 @@
  */
 
 // Configuration
-const AIRTABLE_BASE_ID = "appGDzLGgrYmcW9R1"; // The base ID for your Airtable
-const AIRTABLE_TABLE_ID = "tblTo3zgLYNby9UnL"; // The 2024 P2P Texting table ID
+// Airtable destinations (add IDs to the second object when needed)
+const AIRTABLE_TARGETS = [
+  { baseId: "appGDzLGgrYmcW9R1", tableId: "tblTo3zgLYNby9UnL" }, // Primary destination
+  { baseId: "", tableId: "" } // Secondary destination – leave blank until ready
+];
 const SHEET_NAME = "raw_import"; // The sheet name containing the donor data
 const RATE_LIMIT_HOURS = 0.25; // Only auto-sync once per 15 minutes
 
@@ -134,33 +137,41 @@ function updateLastSyncTime() {
  */
 function syncData() {
   try {
-    logMessage("Starting sync process...");
-    
-    // Fetch ActBlue URLs from Airtable
-    const airtableRecords = fetchAirtableRecords();
-    if (!airtableRecords || airtableRecords.length === 0) {
-      logMessage("No records found in Airtable, sync complete");
-      return;
-    }
-    
-    // Get Google Sheet data - pass airtableRecords to filter by form slugs
-    const sheetData = getSheetData(airtableRecords);
-    if (!sheetData || sheetData.length === 0) {
-      logMessage("No matching data found in Google Sheet, sync complete");
-      return;
-    }
-    
-    // Process and aggregate the data
-    const processedData = processData(airtableRecords, sheetData);
-    if (!processedData || processedData.length === 0) {
-      logMessage("No matches found between Airtable and Sheet data, sync complete");
-      return;
-    }
-    
-    // Update Airtable with the processed data
-    updateAirtable(processedData);
-    
-    logMessage("Sync completed successfully");
+    logMessage("Starting multi-destination sync process...");
+
+    AIRTABLE_TARGETS.forEach(cfg => {
+      // Skip any target that hasn't been configured yet
+      if (!cfg.baseId || !cfg.tableId) {
+        logMessage("Skipping target with blank Base/Table IDs");
+        return;
+      }
+
+      // Step 1: Fetch ActBlue URLs from this Airtable table
+      const airtableRecords = fetchAirtableRecords(cfg);
+      if (!airtableRecords || airtableRecords.length === 0) {
+        logMessage(`No records found in Airtable for base ${cfg.baseId}, skipping`);
+        return;
+      }
+
+      // Step 2: Get matching Google Sheet rows
+      const sheetData = getSheetData(airtableRecords);
+      if (!sheetData || sheetData.length === 0) {
+        logMessage("No matching data found in Google Sheet for this target, skipping");
+        return;
+      }
+
+      // Step 3: Aggregate
+      const processedData = processData(airtableRecords, sheetData);
+      if (!processedData || processedData.length === 0) {
+        logMessage("No matches found between Airtable and Sheet data for this target, skipping");
+        return;
+      }
+
+      // Step 4: Update Airtable
+      updateAirtable(cfg, processedData);
+    });
+
+    logMessage("Sync completed for all configured targets");
   } catch (error) {
     logError("Error in sync process: " + error.message);
   }
@@ -168,10 +179,11 @@ function syncData() {
 
 /**
  * Fetches records from Airtable API.
+ * @param {Object} cfg - Configuration object for the Airtable target
  * @return {Array} Array of Airtable records with their IDs and ActBlue URLs
  */
-function fetchAirtableRecords() {
-  logMessage("Fetching records from Airtable...");
+function fetchAirtableRecords(cfg) {
+  logMessage(`Fetching records from Airtable (base: ${cfg.baseId}, table: ${cfg.tableId})...`);
   
   try {
     const props = PropertiesService.getScriptProperties();
@@ -183,7 +195,7 @@ function fetchAirtableRecords() {
     }
     
     // Prepare request options
-    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_ID}`;
+    const url = `https://api.airtable.com/v0/${cfg.baseId}/${cfg.tableId}`;
     const options = {
       method: 'GET',
       headers: {
@@ -368,10 +380,11 @@ function processData(airtableRecords, sheetData) {
 
 /**
  * Updates Airtable records with the processed data.
+ * @param {Object} cfg - Configuration object for the Airtable target
  * @param {Array} processedData - Data to update in Airtable
  */
-function updateAirtable(processedData) {
-  logMessage(`Updating ${processedData.length} Airtable records...`);
+function updateAirtable(cfg, processedData) {
+  logMessage(`Updating ${processedData.length} Airtable records in base ${cfg.baseId}...`);
   
   let successCount = 0;
   let errorCount = 0;
@@ -394,7 +407,7 @@ function updateAirtable(processedData) {
         }
         
         // Prepare request options
-        const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_ID}/${record.id}`;
+        const url = `https://api.airtable.com/v0/${cfg.baseId}/${cfg.tableId}/${record.id}`;
         const payload = {
           fields: {
             [AIRTABLE_RAISED_FIELD]: record.raised,
