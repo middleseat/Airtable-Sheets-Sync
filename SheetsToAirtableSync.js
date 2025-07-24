@@ -1,6 +1,6 @@
 /**
  * Google Sheets to Airtable ActBlueSync
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author(s): Ryan Mioduski
  *
  * Important:
@@ -42,7 +42,7 @@ function onOpen() {
     .addItem('Sync Data Now', 'manualSyncData')
     .addItem('Install Hourly Auto-Sync', 'installAutoSync')
     .addSeparator()
-    .addItem('View Logs', 'viewLogs')
+    .addItem('View Error Logs', 'viewLogs')
     .addToUi();
 }
 
@@ -51,7 +51,7 @@ function onOpen() {
  * Called from the custom menu.
  */
 function manualSyncData() {
-  logMessage("Manual sync triggered by user");
+  console.log("Manual sync triggered by user");
   syncData();
 }
 
@@ -82,7 +82,7 @@ function installAutoSync() {
            "P.S. You can safely run 'Install Hourly Auto-Sync' again if needed - it will update the existing trigger without creating duplicates.", 
            ui.ButtonSet.OK);
   
-  logMessage("Hourly auto-sync trigger installed successfully");
+  console.log("Hourly auto-sync trigger installed successfully");
 }
 
 /**
@@ -90,11 +90,11 @@ function installAutoSync() {
  * It syncs data regardless of how it was updated (manually or by another script).
  */
 function hourlyAutoSync() {
-  logMessage("Hourly auto-sync triggered");
+  console.log("Hourly auto-sync triggered");
   
   // Check if we should respect the rate limit (keeping this as a safeguard)
   if (shouldRespectRateLimit()) {
-    logMessage("Hourly auto-sync triggered, but skipping due to rate limiting");
+    console.log("Hourly auto-sync triggered, but skipping due to rate limiting");
     return;
   }
   
@@ -137,33 +137,33 @@ function updateLastSyncTime() {
  */
 function syncData() {
   try {
-    logMessage("Starting multi-destination sync process...");
+    console.log("Starting multi-destination sync process...");
 
     AIRTABLE_TARGETS.forEach(cfg => {
       // Skip any target that hasn't been configured yet
       if (!cfg.baseId || !cfg.tableId) {
-        logMessage("Skipping target with blank Base/Table IDs");
+        console.log("Skipping target with blank Base/Table IDs");
         return;
       }
 
       // Step 1: Fetch ActBlue URLs from this Airtable table
       const airtableRecords = fetchAirtableRecords(cfg);
       if (!airtableRecords || airtableRecords.length === 0) {
-        logMessage(`No records found in Airtable for base ${cfg.baseId}, skipping`);
+        console.log(`No records found in Airtable for base ${cfg.baseId}, skipping`);
         return;
       }
 
       // Step 2: Get matching Google Sheet rows
       const sheetData = getSheetData(airtableRecords);
       if (!sheetData || sheetData.length === 0) {
-        logMessage("No matching data found in Google Sheet for this target, skipping");
+        console.log("No matching data found in Google Sheet for this target, skipping");
         return;
       }
 
       // Step 3: Aggregate
       const processedData = processData(airtableRecords, sheetData);
       if (!processedData || processedData.length === 0) {
-        logMessage("No matches found between Airtable and Sheet data for this target, skipping");
+        console.log("No matches found between Airtable and Sheet data for this target, skipping");
         return;
       }
 
@@ -171,7 +171,7 @@ function syncData() {
       updateAirtable(cfg, processedData);
     });
 
-    logMessage("Sync completed for all configured targets");
+    console.log("Sync completed for all configured targets");
   } catch (error) {
     logError("Error in sync process: " + error.message);
   }
@@ -183,7 +183,7 @@ function syncData() {
  * @return {Array} Array of Airtable records with their IDs and ActBlue URLs
  */
 function fetchAirtableRecords(cfg) {
-  logMessage(`Fetching records from Airtable (base: ${cfg.baseId}, table: ${cfg.tableId})...`);
+  console.log(`Fetching records from Airtable (base: ${cfg.baseId}, table: ${cfg.tableId})...`);
   
   try {
     const props = PropertiesService.getScriptProperties();
@@ -231,7 +231,7 @@ function fetchAirtableRecords(cfg) {
       };
     }).filter(record => record.formSlug); // Only keep records with a valid form slug
     
-    logMessage(`Found ${records.length} valid ActBlue form slugs in Airtable`);
+    console.log(`Found ${records.length} valid ActBlue form slugs in Airtable`);
     return records;
     
   } catch (error) {
@@ -246,7 +246,7 @@ function fetchAirtableRecords(cfg) {
  * @return {Array} Array of donation data from the sheet
  */
 function getSheetData(airtableRecords) {
-  logMessage("Retrieving data from Google Sheets...");
+  console.log("Retrieving data from Google Sheets...");
   
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -259,7 +259,7 @@ function getSheetData(airtableRecords) {
     
     // Extract form slugs from Airtable records for filtering
     const formSlugs = airtableRecords.map(record => record.formSlug);
-    logMessage(`Will filter sheet data for ${formSlugs.length} form slugs`);
+    console.log(`Will filter sheet data for ${formSlugs.length} form slugs`);
     
     // Get all data
     const dataRange = sheet.getDataRange();
@@ -283,7 +283,7 @@ function getSheetData(airtableRecords) {
       return [];
     }
     
-    logMessage(`Processing ${values.length} rows from sheet, filtering for ${formSlugs.length} form slugs...`);
+    console.log(`Processing ${values.length} rows from sheet, filtering for ${formSlugs.length} form slugs...`);
     
     // Transform data into objects with named properties, but only for matching form_names
     const sheetData = [];
@@ -312,11 +312,11 @@ function getSheetData(airtableRecords) {
       
       // Log progress for large datasets
       if (processedRows % 50000 === 0) {
-        logMessage(`Processed ${processedRows} rows, found ${matchedRows} matches so far...`);
+        console.log(`Processed ${processedRows} rows, found ${matchedRows} matches so far...`);
       }
     }
     
-    logMessage(`Found ${sheetData.length} matching donation records in Google Sheet (from ${values.length-1} total rows)`);
+    console.log(`Found ${sheetData.length} matching donation records in Google Sheet (from ${values.length-1} total rows)`);
     return sheetData;
     
   } catch (error) {
@@ -332,7 +332,7 @@ function getSheetData(airtableRecords) {
  * @return {Array} Processed data ready for updating Airtable
  */
 function processData(airtableRecords, sheetData) {
-  logMessage("Processing and aggregating data...");
+  console.log("Processing and aggregating data...");
   
   try {
     // Create maps to store the sums for each form name
@@ -369,7 +369,7 @@ function processData(airtableRecords, sheetData) {
       }
     });
     
-    logMessage(`Matched and processed ${processedData.length} records`);
+    console.log(`Matched and processed ${processedData.length} records`);
     return processedData;
     
   } catch (error) {
@@ -384,7 +384,7 @@ function processData(airtableRecords, sheetData) {
  * @param {Array} processedData - Data to update in Airtable
  */
 function updateAirtable(cfg, processedData) {
-  logMessage(`Updating ${processedData.length} Airtable records in base ${cfg.baseId}...`);
+  console.log(`Updating ${processedData.length} Airtable records in base ${cfg.baseId}...`);
   
   let successCount = 0;
   let errorCount = 0;
@@ -430,7 +430,7 @@ function updateAirtable(cfg, processedData) {
         
         if (responseCode === 200) {
           successCount++;
-          logMessage(`Updated record ${record.id} with amount ${record.raised} and ${record.donations} donations`);
+          console.log(`Updated record ${record.id} with amount ${record.raised} and ${record.donations} donations`);
         } else {
           errorCount++;
           logError(`Failed to update record ${record.id}: Response code ${responseCode}`);
@@ -441,7 +441,7 @@ function updateAirtable(cfg, processedData) {
       }
     });
     
-    logMessage(`Update complete: ${successCount} successful, ${errorCount} failed`);
+    console.log(`Update complete: ${successCount} successful, ${errorCount} failed`);
     
   } catch (error) {
     logError("Error updating Airtable: " + error.message);
@@ -453,79 +453,59 @@ function updateAirtable(cfg, processedData) {
  */
 function setupTrigger() {
   // This function is now unused but kept for backward compatibility
-  logMessage("Manual authorization is now handled automatically. Just run 'Sync Data Now' from the menu.");
+  console.log("Manual authorization is now handled automatically. Just run 'Sync Data Now' from the menu.");
 }
 
 /**
- * Logs a message to a dedicated "Logs" sheet.
- * @param {string} message - The message to log
- */
-function logMessage(message) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let logsSheet = ss.getSheetByName("Logs");
-  
-  if (!logsSheet) {
-    logsSheet = ss.insertSheet("Logs");
-    logsSheet.appendRow(["Timestamp", "Type", "Message"]);
-    logsSheet.setFrozenRows(1);
-    
-    // Format header row
-    logsSheet.getRange("A1:C1").setFontWeight("bold");
-    logsSheet.setColumnWidth(1, 200); // Timestamp
-    logsSheet.setColumnWidth(2, 100); // Type
-    logsSheet.setColumnWidth(3, 500); // Message
-  }
-  
-  logsSheet.appendRow([new Date(), "INFO", message]);
-}
-
-/**
- * Logs an error message to the "Logs" sheet.
+ * Logs an error message to the "Error Logs" sheet.
  * @param {string} errorMessage - The error message to log
  */
 function logError(errorMessage) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let logsSheet = ss.getSheetByName("Logs");
+  let logsSheet = ss.getSheetByName("Error Logs");
   
   if (!logsSheet) {
-    logsSheet = ss.insertSheet("Logs");
-    logsSheet.appendRow(["Timestamp", "Type", "Message"]);
+    logsSheet = ss.insertSheet("Error Logs");
+    logsSheet.appendRow(["Timestamp", "Error Message"]);
     logsSheet.setFrozenRows(1);
     
     // Format header row
-    logsSheet.getRange("A1:C1").setFontWeight("bold");
+    logsSheet.getRange("A1:B1").setFontWeight("bold");
     logsSheet.setColumnWidth(1, 200); // Timestamp
-    logsSheet.setColumnWidth(2, 100); // Type
-    logsSheet.setColumnWidth(3, 500); // Message
+    logsSheet.setColumnWidth(2, 600); // Error Message
   }
   
   // Add error row with red text
-  logsSheet.appendRow([new Date(), "ERROR", errorMessage]);
+  logsSheet.appendRow([new Date(), errorMessage]);
   const lastRow = logsSheet.getLastRow();
-  logsSheet.getRange(lastRow, 1, 1, 3).setFontColor("red");
+  logsSheet.getRange(lastRow, 1, 1, 2).setFontColor("red");
+  
+  // Also log to console for debugging
+  console.error(errorMessage);
 }
 
 /**
- * Displays logs by activating the Logs sheet tab.
+ * Displays error logs by activating the Error Logs sheet tab.
  */
 function viewLogs() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let logsSheet = ss.getSheetByName("Logs");
+  let logsSheet = ss.getSheetByName("Error Logs");
   
   if (!logsSheet) {
-    logsSheet = ss.insertSheet("Logs");
-    logsSheet.appendRow(["Timestamp", "Type", "Message"]);
+    logsSheet = ss.insertSheet("Error Logs");
+    logsSheet.appendRow(["Timestamp", "Error Message"]);
     logsSheet.setFrozenRows(1);
     
     // Format header row
-    logsSheet.getRange("A1:C1").setFontWeight("bold");
+    logsSheet.getRange("A1:B1").setFontWeight("bold");
     logsSheet.setColumnWidth(1, 200); // Timestamp
-    logsSheet.setColumnWidth(2, 100); // Type
-    logsSheet.setColumnWidth(3, 500); // Message
+    logsSheet.setColumnWidth(2, 600); // Error Message
     
-    SpreadsheetApp.getUi().alert("Created new Logs sheet.");
+    SpreadsheetApp.getUi().alert("Created new Error Logs sheet. No errors have been logged yet.");
+  } else {
+    SpreadsheetApp.getUi().alert(`Error Logs sheet contains ${logsSheet.getLastRow() - 1} error(s).`);
   }
   
-  // Activate the Logs sheet to make it visible
+  // Activate the Error Logs sheet to make it visible
   logsSheet.activate();
 } 
